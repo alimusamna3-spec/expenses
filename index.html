@@ -1,0 +1,728 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon.png">
+
+<script>
+    // Register the Service Worker for offline app capability
+    if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+            navigator.serviceWorker.register('./sw.js')
+                .then(reg => console.log('Sovereign App Registered Sucessfully!'))
+                .catch(err => console.log('Registration failed: ', err));
+        });
+    }
+</script>
+</script>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Sovereign - PKR Expense Tracker</title>
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <style>
+        :root {
+            --bg-color: #f5f5f7;
+            --card-bg: rgba(255, 255, 255, 0.85);
+            --text-primary: #1d1d1f;
+            --text-secondary: #86868b;
+            --accent-blue: #0071e3;
+            --accent-green: #34c759;
+            --accent-red: #ff3b30;
+            --border-radius: 24px;
+            --blur-effect: blur(25px);
+        }
+
+        @media (prefers-color-scheme: dark) {
+            :root {
+                --bg-color: #000000;
+                --card-bg: rgba(28, 28, 30, 0.85);
+                --text-primary: #f5f5f7;
+                --text-secondary: #8e8e93;
+                --accent-blue: #0a84ff;
+            }
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            -webkit-font-smoothing: antialiased;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-primary);
+            display: flex;
+            justify-content: center;
+            align-items: flex-start;
+            min-height: 100vh;
+            padding: 20px;
+            transition: background 0.3s ease;
+            overflow-x: hidden;
+        }
+
+        /* Dynamic Island */
+        .dynamic-island-container {
+            position: fixed;
+            top: 15px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 2000;
+            display: flex;
+            justify-content: center;
+            width: 100%;
+            pointer-events: none;
+        }
+
+        .dynamic-island {
+            background: #000000;
+            color: #ffffff;
+            min-width: 110px;
+            height: 30px;
+            border-radius: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0 15px;
+            transition: all 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            pointer-events: auto;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+        }
+
+        .dynamic-island.expanded {
+            min-width: 280px;
+            height: 55px;
+            border-radius: 25px;
+            padding: 0 20px;
+        }
+
+        .dynamic-island .island-content {
+            font-size: 12px;
+            font-weight: 500;
+            white-space: nowrap;
+            opacity: 0;
+            transition: opacity 0.2s ease;
+            display: none;
+            width: 100%;
+        }
+
+        .dynamic-island.expanded .island-content {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            opacity: 1;
+        }
+
+        .island-pill {
+            width: 10px;
+            height: 10px;
+            background: var(--accent-green);
+            border-radius: 50%;
+            margin-right: 8px;
+        }
+
+        /* Main Container */
+        .container {
+            width: 100%;
+            max-width: 400px;
+            background: var(--card-bg);
+            backdrop-filter: var(--blur-effect);
+            -webkit-backdrop-filter: var(--blur-effect);
+            border-radius: var(--border-radius);
+            padding: 30px;
+            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            margin-top: 50px;
+        }
+
+        header {
+            text-align: center;
+            margin-bottom: 25px;
+        }
+
+        header h1 {
+            font-size: 24px;
+            font-weight: 700;
+            letter-spacing: -0.5px;
+        }
+
+        .budget-setting-trigger {
+            background: none;
+            border: none;
+            color: var(--accent-blue);
+            font-size: 14px;
+            cursor: pointer;
+            margin-top: 4px;
+            font-weight: 500;
+        }
+
+        /* Chart Section */
+        .chart-container {
+            position: relative;
+            width: 210px;
+            height: 210px;
+            margin: 0 auto 25px auto;
+        }
+
+        .ring-svg {
+            transform: rotate(-90deg);
+            width: 100%;
+            height: 100%;
+        }
+
+        .ring-bg {
+            fill: none;
+            stroke: rgba(0, 0, 0, 0.04);
+            stroke-width: 16;
+        }
+        
+        @media (prefers-color-scheme: dark) {
+            .ring-bg { stroke: rgba(255, 255, 255, 0.04); }
+        }
+
+        .ring-progress {
+            fill: none;
+            stroke-width: 16;
+            stroke-linecap: round;
+            stroke-dasharray: 565.48;
+            stroke-dashoffset: 0;
+            transition: stroke-dashoffset 0.8s cubic-bezier(0.4, 0, 0.2, 1), stroke 0.8s ease;
+        }
+
+        .chart-label {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+            width: 80%;
+        }
+
+        .chart-label .percentage {
+            font-size: 34px;
+            font-weight: 700;
+            letter-spacing: -1px;
+        }
+
+        .chart-label .remaining {
+            font-size: 13px;
+            color: var(--text-secondary);
+            margin-top: 2px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        /* Apple-style Dashboard Info Cards Widget */
+        .info-cards-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+            margin-bottom: 25px;
+        }
+
+        .info-card {
+            background: rgba(0, 0, 0, 0.02);
+            border: 1px solid rgba(0, 0, 0, 0.03);
+            border-radius: 16px;
+            padding: 14px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+        }
+
+        @media (prefers-color-scheme: dark) {
+            .info-card {
+                background: rgba(255, 255, 255, 0.03);
+                border: 1px solid rgba(255, 255, 255, 0.05);
+            }
+        }
+
+        .info-card .card-title {
+            font-size: 11px;
+            text-transform: uppercase;
+            font-weight: 600;
+            color: var(--text-secondary);
+            letter-spacing: 0.5px;
+            margin-bottom: 4px;
+        }
+
+        .info-card .card-value {
+            font-size: 16px;
+            font-weight: 700;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .value-budget { color: var(--text-primary); }
+        .value-spent { color: var(--accent-red); }
+
+        /* Action Buttons */
+        .action-grid {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 12px;
+            margin-bottom: 25px;
+        }
+
+        .btn-trigger {
+            width: 100%;
+            background: var(--text-primary);
+            color: var(--bg-color);
+            border: none;
+            padding: 14px;
+            border-radius: 14px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.1s ease;
+        }
+
+        .btn-trigger:active {
+            transform: scale(0.97);
+        }
+
+        /* History List */
+        .history-section h3 {
+            font-size: 15px;
+            font-weight: 600;
+            margin-bottom: 12px;
+            color: var(--text-secondary);
+        }
+
+        .expense-list {
+            list-style: none;
+            max-height: 180px;
+            overflow-y: auto;
+        }
+
+        .expense-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 14px 0;
+            border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+            animation: fadeIn 0.4s ease;
+        }
+        
+        @media (prefers-color-scheme: dark) {
+            .expense-item { border-bottom: 1px solid rgba(255, 255, 255, 0.05); }
+        }
+
+        .expense-item:last-child {
+            border-bottom: none;
+        }
+
+        .expense-info .name {
+            font-weight: 500;
+            font-size: 15px;
+        }
+
+        .expense-amount {
+            font-weight: 600;
+            font-size: 15px;
+            color: var(--accent-red);
+        }
+
+        /* Apple UI Sheet Modal Layer */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.4);
+            backdrop-filter: blur(15px);
+            -webkit-backdrop-filter: blur(15px);
+            display: flex;
+            justify-content: center;
+            align-items: flex-end;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+            z-index: 1000;
+        }
+
+        .modal-overlay.active {
+            opacity: 1;
+            pointer-events: auto;
+        }
+
+        .iframe-container {
+            width: 100%;
+            max-width: 500px;
+            height: 75vh;
+            background: var(--bg-color);
+            border-top-left-radius: var(--border-radius);
+            border-top-right-radius: var(--border-radius);
+            overflow: hidden;
+            box-shadow: 0 -10px 30px rgba(0,0,0,0.15);
+            transform: translateY(100%);
+            transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+            display: flex;
+            flex-direction: column;
+        }
+
+        .modal-overlay.active .iframe-container {
+            transform: translateY(0);
+        }
+
+        .iframe-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 18px 20px;
+            background: var(--card-bg);
+            border-bottom: 1px solid rgba(0,0,0,0.05);
+        }
+
+        .iframe-header button {
+            background: none;
+            border: none;
+            color: var(--accent-blue);
+            font-size: 16px;
+            cursor: pointer;
+            font-weight: 500;
+        }
+
+        .iframe-header .title {
+            font-weight: 600;
+            font-size: 17px;
+        }
+
+        .iframe-body {
+            padding: 24px;
+            flex-grow: 1;
+        }
+
+        .form-group {
+            background: var(--card-bg);
+            border-radius: 14px;
+            padding: 6px 16px;
+            margin-bottom: 18px;
+            border: 1px solid rgba(0, 0, 0, 0.02);
+        }
+
+        .form-group label {
+            display: block;
+            font-size: 11px;
+            text-transform: uppercase;
+            color: var(--text-secondary);
+            margin-top: 6px;
+            font-weight: 600;
+            letter-spacing: 0.5px;
+        }
+
+        .form-group input {
+            width: 100%;
+            border: none;
+            background: transparent;
+            padding: 8px 0 10px 0;
+            font-size: 17px;
+            color: var(--text-primary);
+            outline: none;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(6px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="dynamic-island-container">
+        <div id="dynamicIsland" class="dynamic-island">
+            <div id="islandContent" class="island-content">
+                <div style="display: flex; align-items: center;">
+                    <div class="island-pill" id="islandPill"></div>
+                    <span id="islandText" style="color: #fff; font-weight:600;">System Ready</span>
+                </div>
+                <span id="islandSubtext" style="color: #8e8e93;">₨ 0</span>
+            </div>
+        </div>
+    </div>
+
+    <div class="container">
+        <header>
+            <h1>Sovereign</h1>
+            <button class="budget-setting-trigger" onclick="openBudgetModal()">Set Monthly Budget</button>
+        </header>
+
+        <div class="chart-container">
+            <svg class="ring-svg" viewBox="0 0 200 200">
+                <circle class="ring-bg" cx="100" cy="100" r="90" />
+                <circle id="progressRing" class="ring-progress" cx="100" cy="100" r="90" />
+            </svg>
+            <div class="chart-label">
+                <div id="percentageText" class="percentage">100%</div>
+                <div id="remainingText" class="remaining">₨ 0 left</div>
+            </div>
+        </div>
+
+        <div class="info-cards-grid">
+            <div class="info-card">
+                <span class="card-title">Total Budget</span>
+                <span id="totalBudgetCardValue" class="card-value value-budget">₨ 0</span>
+            </div>
+            <div class="info-card">
+                <span class="card-title">Total Expenses</span>
+                <span id="totalExpensesCardValue" class="card-value value-spent">₨ 0</span>
+            </div>
+        </div>
+
+        <div class="action-grid">
+            <button class="btn-trigger" onclick="openExpenseModal()">Add Expense</button>
+        </div>
+
+        <div class="history-section">
+            <h3>Recent Activity</h3>
+            <ul id="expenseList" class="expense-list">
+                </ul>
+        </div>
+    </div>
+
+    <div id="modalOverlay" class="modal-overlay" onclick="closeModal(event)">
+        <div class="iframe-container" id="modalContainer" onclick="event.stopPropagation()">
+             </div>
+    </div>
+
+    <script>
+        // State Management Matrix with LocalStorage Fallback
+        let TOTAL_BUDGET = parseFloat(localStorage.getItem('sov_total_budget')) || 50000;
+        let expenses = JSON.parse(localStorage.getItem('sov_expenses')) || [];
+        
+        // DOM targets
+        const progressRing = document.getElementById('progressRing');
+        const percentageText = document.getElementById('percentageText');
+        const remainingText = document.getElementById('remainingText');
+        const totalBudgetCardValue = document.getElementById('totalBudgetCardValue');
+        const totalExpensesCardValue = document.getElementById('totalExpensesCardValue');
+        const expenseList = document.getElementById('expenseList');
+        const modalOverlay = document.getElementById('modalOverlay');
+        const modalContainer = document.getElementById('modalContainer');
+        
+        const RADIUS = 90;
+        const CIRCUMFERENCE = 2 * Math.PI * RADIUS;
+
+        // Dynamic Island Controller Engine
+        function triggerIslandNotification(message, valueText, type = 'success') {
+            const island = document.getElementById('dynamicIsland');
+            const content = document.getElementById('islandContent');
+            const text = document.getElementById('islandText');
+            const subtext = document.getElementById('islandSubtext');
+            const pill = document.getElementById('islandPill');
+
+            pill.style.background = type === 'success' ? '#34c759' : type === 'warning' ? '#ff9500' : '#ff3b30';
+            text.textContent = message;
+            subtext.textContent = valueText;
+
+            island.classList.add('expanded');
+            setTimeout(() => content.style.opacity = '1', 150);
+
+            // Compress Back into Pill
+            setTimeout(() => {
+                content.style.opacity = '0';
+                setTimeout(() => {
+                    island.classList.remove('expanded');
+                }, 150);
+            }, 3200);
+        }
+
+        function calculateTotalSpent() {
+            return expenses.reduce((sum, item) => sum + item.amount, 0);
+        }
+
+        function calculateRemaining() {
+            return Math.max(0, TOTAL_BUDGET - calculateTotalSpent());
+        }
+
+        function updateUI() {
+            const currentSpent = calculateTotalSpent();
+            const currentRemaining = calculateRemaining();
+            const percentage = TOTAL_BUDGET > 0 ? Math.max(0, (currentRemaining / TOTAL_BUDGET) * 100) : 0;
+            
+            const offset = CIRCUMFERENCE - (percentage / 100) * CIRCUMFERENCE;
+            progressRing.style.strokeDashoffset = offset;
+
+            // Gradient transition: Green (120) to Yellow to Red (0)
+            const hue = (percentage * 1.2).toFixed(0);
+            progressRing.style.stroke = `hsl(${hue}, 85%, 45%)`;
+
+            percentageText.textContent = `${Math.round(percentage)}%`;
+            remainingText.textContent = `₨ ${Math.round(currentRemaining).toLocaleString()} left`;
+
+            // Update New Info Grid Cards
+            totalBudgetCardValue.textContent = `₨ ${TOTAL_BUDGET.toLocaleString()}`;
+            totalExpensesCardValue.textContent = `₨ ${currentSpent.toLocaleString()}`;
+
+            // Render List Items
+            expenseList.innerHTML = '';
+            expenses.forEach((item, index) => {
+                const li = document.createElement('li');
+                li.className = 'expense-item';
+                li.style.cursor = 'pointer';
+                li.setAttribute('onclick', `openExpenseActions(${index})`);
+                li.innerHTML = `
+                    <div class="expense-info">
+                        <div class="name">${item.name}</div>
+                    </div>
+                    <div class="expense-amount">-₨ ${item.amount.toLocaleString()}</div>
+                `;
+                expenseList.appendChild(li);
+            });
+        }
+
+        // Modals Generator Config 
+        function openExpenseModal() {
+            modalContainer.innerHTML = `
+                <div class="iframe-header">
+                    <button onclick="closeModal()">Cancel</button>
+                    <div class="title">Add Expense</div>
+                    <button style="font-weight: 600;" onclick="submitExpense()">Add</button>
+                </div>
+                <div class="iframe-body">
+                    <div class="form-group">
+                        <label>Description</label>
+                        <input type="text" id="expenseName" placeholder="e.g., Petrol / Utility Bill" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Amount (PKR ₨)</label>
+                        <input type="number" id="expenseAmount" placeholder="0" inputmode="numeric" required>
+                    </div>
+                </div>
+            `;
+            modalOverlay.classList.add('active');
+            document.getElementById('expenseName').focus();
+        }
+
+        function openBudgetModal() {
+            modalContainer.innerHTML = `
+                <div class="iframe-header">
+                    <button onclick="closeModal()">Cancel</button>
+                    <div class="title">Monthly Budget</div>
+                    <button style="font-weight: 600;" onclick="submitBudget()">Save</button>
+                </div>
+                <div class="iframe-body">
+                    <div class="form-group">
+                        <label>Total Allocated Budget (₨)</label>
+                        <input type="number" id="newBudgetVal" placeholder="${TOTAL_BUDGET}" inputmode="numeric" required>
+                    </div>
+                </div>
+            `;
+            modalOverlay.classList.add('active');
+            document.getElementById('newBudgetVal').focus();
+        }
+
+        function closeModal() {
+            modalOverlay.classList.remove('active');
+        }
+
+        function submitExpense() {
+            const nameInput = document.getElementById('expenseName');
+            const amountInput = document.getElementById('expenseAmount');
+            const name = nameInput.value.trim();
+            const amount = parseFloat(amountInput.value);
+
+            if (!name || isNaN(amount) || amount <= 0) return;
+
+            expenses.unshift({ name, amount });
+            localStorage.setItem('sov_expenses', JSON.stringify(expenses));
+            
+            updateUI();
+            closeModal();
+            triggerIslandNotification(name, `-₨ ${amount.toLocaleString()}`, 'warning');
+        }
+
+        function submitBudget() {
+            const budgetInput = document.getElementById('newBudgetVal');
+            const val = parseFloat(budgetInput.value);
+
+            if (isNaN(val) || val <= 0) return;
+
+            TOTAL_BUDGET = val;
+            localStorage.setItem('sov_total_budget', TOTAL_BUDGET.toString());
+            
+            updateUI();
+            closeModal();
+            triggerIslandNotification("Budget Configured", `₨ ${TOTAL_BUDGET.toLocaleString()}`, 'success');
+        }
+
+        // --- New iOS Sheet Actions Engine ---
+        function openExpenseActions(index) {
+            const item = expenses[index];
+            modalContainer.innerHTML = `
+                <div class="iframe-header">
+                    <button onclick="closeModal()">Cancel</button>
+                    <div class="title">Manage Expense</div>
+                    <div></div>
+                </div>
+                <div class="iframe-body" style="display: flex; flex-direction: column; gap: 14px;">
+                    <div style="text-align: center; margin-bottom: 15px;">
+                        <div style="font-size: 18px; font-weight: 600; color: var(--text-primary);">${item.name}</div>
+                        <div style="font-size: 16px; color: var(--accent-red); font-weight: 700; margin-top: 4px;">-₨ ${item.amount.toLocaleString()}</div>
+                    </div>
+                    <button class="btn-trigger" style="background: var(--accent-blue); color: #fff;" onclick="openEditExpenseModal(${index})">Edit Details</button>
+                    <button class="btn-trigger" style="background: var(--accent-red); color: #fff;" onclick="deleteExpense(${index})">Delete Expense</button>
+                </div>
+            `;
+            modalOverlay.classList.add('active');
+        }
+
+        function openEditExpenseModal(index) {
+            const item = expenses[index];
+            modalContainer.innerHTML = `
+                <div class="iframe-header">
+                    <button onclick="openExpenseActions(${index})">Back</button>
+                    <div class="title">Edit Expense</div>
+                    <button style="font-weight: 600;" onclick="submitEditExpense(${index})">Save</button>
+                </div>
+                <div class="iframe-body">
+                    <div class="form-group">
+                        <label>Description</label>
+                        <input type="text" id="editExpenseName" value="${item.name}" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Amount (PKR ₨)</label>
+                        <input type="number" id="editExpenseAmount" value="${item.amount}" inputmode="numeric" required>
+                    </div>
+                </div>
+            `;
+            document.getElementById('editExpenseName').focus();
+        }
+
+        function submitEditExpense(index) {
+            const nameInput = document.getElementById('editExpenseName');
+            const amountInput = document.getElementById('editExpenseAmount');
+            const name = nameInput.value.trim();
+            const amount = parseFloat(amountInput.value);
+
+            if (!name || isNaN(amount) || amount <= 0) return;
+
+            expenses[index] = { name, amount };
+            localStorage.setItem('sov_expenses', JSON.stringify(expenses));
+            
+            updateUI();
+            closeModal();
+            triggerIslandNotification("Expense Updated", name, 'warning');
+        }
+
+        function deleteExpense(index) {
+            const name = expenses[index].name;
+            expenses.splice(index, 1);
+            localStorage.setItem('sov_expenses', JSON.stringify(expenses));
+            
+            updateUI();
+            closeModal();
+            triggerIslandNotification("Deleted", name, 'error');
+        }
+
+        // Run Engine on startup
+        updateUI();
+    </script>
+</body>
+</html>
